@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MD Agriculture Practices Chart</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    
+        /* For screen-reader-only labels */
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border-width: 0;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans text-gray-800">
+
+    <main class="max-w-7xl mx-auto p-4 md:p-8">
+        
+        <header>
+            <h1 class="text-2xl md:text-3xl font-bold text-center mb-6 text-gray-700">
+                Maryland Annual Agricultural Practices (2010-2024)
+            </h1>
+            <p class="text-center text-gray-600 mb-8 max-w-3xl mx-auto">
+                Annual practices (Cover Crops, Conservation Tillage Management, Soil Conservation and Water Quality Plans, Nutrient Management) for 2010 through 2024, by FIPs. WIP goals for progress year 2025.
+            </p>
+        </header>
+
+        <section aria-labelledby="controls-heading">
+            <h2 id="controls-heading" class="sr-only">Chart Controls</h2>
+            <div class="flex flex-col md:flex-row gap-4 mb-6 bg-white p-4 rounded-lg shadow-md">
+                
+                <div class="flex-1">
+                    <label for="practice-select" class="block text-sm font-medium text-gray-700 mb-1">
+                        Agriculture Practice
+                    </label>
+                    <select id="practice-select" name="practice-select" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md shadow-sm">
+                        <option value="">Loading practices...</option>
+                    </select>
+                </div>
+
+                <div class="flex-1">
+                    <label for="fips-select" class="block text-sm font-medium text-gray-700 mb-1">
+                        County
+                    </label>
+                    <select id="fips-select" name="fips-select" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md shadow-sm">
+                        <option value="">Loading counties...</option>
+                    </select>
+                </div>
+
+            </div>
+        </section>
+
+        <section aria-labelledby="chart-heading">
+            <h2 id="chart-heading" class="sr-only">Interactive Data Chart</h2>
+            <div id="chart-container" class="bg-white p-4 rounded-lg shadow-lg min-h-[450px] flex items-center justify-center">
+                <div id="chart"></div>
+                <div id="loading-chart" class="text-gray-500">Loading chart data...</div>
+            </div>
+        </section>
+
+        <section class="mt-8 bg-white p-6 rounded-lg shadow-lg" aria-labelledby="ai-heading">
+            <h2 id="ai-heading" class="text-2xl font-semibold mb-4 text-gray-700">Simulated Screen Reader / AI Insights</h2>
+            <div id="ai-textbox" class="min-h-[150px] p-4 bg-gray-50 border border-gray-200 rounded-lg text-gray-700 space-y-3" aria-live="polite" role="log">
+                <p id="loading-ai" class="text-gray-500">Please select a practice and county to see insights.</p>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        // --- CONFIGURATION & STATE ---
+        const DATA_URL = 'https://opendata.maryland.gov/resource/9qyj-bhez.json';
+        
+        const FIPS_COUNTY_MAP = {
+            "24001": "Allegany", "24003": "Anne Arundel", "24005": "Baltimore",
+            "24007": "Baltimore City", "24009": "Calvert", "24011": "Caroline",
+            "24013": "Carroll", "24015": "Cecil", "24017": "Charles",
+            "24019": "Dorchester", "24021": "Frederick", "24023": "Garrett",
+            "24025": "Harford", "24027": "Howard", "24029": "Kent",
+            "24031": "Montgomery", "24033": "Prince George's", "24035": "Queen Anne's",
+            "24037": "St. Mary's", "24039": "Somerset", "24041": "Talbot",
+            "24043": "Washington", "24045": "Wicomico", "24047": "Worcester",
+            "24510": "Baltimore City"
+        };
+
+        const aiInsightsData = {
+            "Commodity Cover Crop|24001": [
+                { q: "What is the trend for this indicator?", a: "The trend for Commodity Cover Crop in Allegany County shows variability, with a significant increase in 2022 after several years of zero progress, and a 2025 goal of 206.00 Acres." },
+                { q: "What is this indicator?", a: "Commodity Cover Crop refers to acres of crops planted to protect the soil during off-seasons, which also have commodity value." },
+                { q: "What is the 2025 goal?", a: "The 2025 goal for Allegany County is 206.00 Acres." },
+                { q: "Why was progress zero from 2018-2021?", a: "This could be due to changes in reporting, program funding, or farmer participation. (Example AI-generated answer)" }
+            ],
+            "Conservation Tillage Management|24003": [
+                { q: "What is the trend for this indicator?", a: "Trend data for Conservation Tillage Management in Anne Arundel County will appear here once populated." },
+                { q: "What is Conservation Tillage?", a: "This is a farming method that reduces soil erosion and runoff by leaving crop residue on the field." }
+            ]
+        };
+
+        let allData = [];
+        
+        // DOM Element References
+        const practiceSelect = document.getElementById('practice-select');
+        const fipsSelect = document.getElementById('fips-select');
+        const chartDiv = document.getElementById('chart');
+        const aiTextbox = document.getElementById('ai-textbox');
+        const loadingChart = document.getElementById('loading-chart');
+        const loadingAi = document.getElementById('loading-ai');
+
+        // --- INITIALIZATION ---
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchData();
+            practiceSelect.addEventListener('change', updateChartAndInsights);
+            fipsSelect.addEventListener('change', updateChartAndInsights);
+        });
+
+        // --- DATA FETCHING & PROCESSING ---
+        async function fetchData() {
+            try {
+                const response = await fetch(DATA_URL);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                allData = await response.json();
+                
+                populateDropdowns();
+                
+                loadingChart.innerText = 'Please select a practice and county to view the chart.';
+                
+            } catch (error) {
+                console.error("Error fetching data:", error);
+                loadingChart.innerText = 'Failed to load chart data. Please check the console.';
+                loadingAi.innerText = 'Failed to load data.';
+            }
+        }
+
+        function populateDropdowns() {
+            const practices = [...new Set(allData.map(item => item.agriculture_practices))].sort();
+            practiceSelect.innerHTML = '<option value="">Select a practice...</option>'; // Clear loading text
+            practices.forEach(practice => {
+                const option = document.createElement('option');
+                option.value = practice;
+                option.textContent = practice;
+                practiceSelect.appendChild(option);
+            });
+
+            const fipsCodes = [...new Set(allData.map(item => item.fips))].sort();
+            fipsSelect.innerHTML = '<option value="">Select a county...</option>'; // Clear loading text
+            fipsCodes.forEach(fips => {
+                const countyName = FIPS_COUNTY_MAP[fips] || `Unknown FIPS (${fips})`;
+                const option = document.createElement('option');
+                option.value = fips;
+                option.textContent = `${countyName} (${fips})`;
+                fipsSelect.appendChild(option);
+            });
+        }
+
+        // --- CHARTING & UI UPDATES ---
+
+        function updateChartAndInsights() {
+            const selectedPractice = practiceSelect.value;
+            const selectedFips = fipsSelect.value;
+
+            loadingChart.style.display = 'none';
+            loadingAi.style.display = 'none';
+
+            if (selectedPractice && selectedFips) {
+                drawChart(selectedPractice, selectedFips);
+                updateAITextbox(selectedPractice, selectedFips);
+            } else {
+                Plotly.purge(chartDiv);
+                aiTextbox.innerHTML = '<p class="text-gray-500">Please select both a practice and a county.</p>';
+            }
+        }
+
+        function drawChart(selectedPractice, selectedFips) {
+            const rowData = allData.find(d => 
+                d.agriculture_practices === selectedPractice && d.fips === selectedFips
+            );
+
+            if (!rowData) {
+                Plotly.purge(chartDiv);
+                chartDiv.innerHTML = '<p class="text-center text-gray-500">No data available for this selection.</p>';
+                return;
+            }
+
+            const years = [];
+            const progressValues = [];
+            
+            const progressKeys = Object.keys(rowData)
+                .filter(k => k.startsWith('_') && k.endsWith('_progress'))
+                .sort();
+
+            progressKeys.forEach(key => {
+                years.push(key.replace(/_/g, '').replace('progress', ''));
+                progressValues.push(parseFloat(rowData[key]) || 0);
+            });
+
+            const goalValue = parseFloat(rowData._2025_goal) || 0;
+            const firstYear = years[0]; // e.g., "2010"
+            const lastProgressYear = years[years.length - 1]; // e.g., "2024"
+
+            const trace = {
+                x: years,
+                y: progressValues,
+                mode: 'lines+markers',
+                name: 'Progress',
+                line: {
+                    color: '#1d4ed8',
+                    width: 3
+                },
+                marker: {
+                    color: '#1d4ed8',
+                    size: 8
+                }
+            };
+            
+            const goalLineTrace = {
+                x: [firstYear, lastProgressYear],
+                y: [goalValue, goalValue],
+                mode: 'lines',
+                name: '2025 Goal',
+                line: {
+                    color: '#ef4444',
+                    width: 2,
+                    dash: 'dash'
+                }
+            };
+
+            const countyName = FIPS_COUNTY_MAP[selectedFips] || selectedFips;
+            const layout = {
+                title: {
+                    text: `${selectedPractice}<br>in ${countyName} (${selectedFips})`,
+                    font: { size: 20 },
+                    x: 0.5,
+                    xanchor: 'center'
+                },
+                xaxis: {
+                    title: 'Year',
+                    type: 'category'
+                },
+                yaxis: {
+                    title: rowData.unit || 'Value'
+                },
+                hovermode: 'x unified',
+                margin: { t: 80, b: 40, l: 60, r: 40 },
+                legend: {
+                    orientation: 'h',
+                    y: -0.2,
+                    x: 0.5,
+                    xanchor: 'center'
+                }
+            };
+
+            Plotly.newPlot(chartDiv, [trace, goalLineTrace], layout, { responsive: true });
+        }
+
+        function updateAITextbox(selectedPractice, selectedFips) {
+            const countyName = FIPS_COUNTY_MAP[selectedFips] || selectedFips;
+            
+            const insightHtml = getAIInsightHtml(selectedPractice, selectedFips, countyName);
+            
+            aiTextbox.innerHTML = insightHtml;
+        }
+
+        function getAIInsightHtml(practice, fips, countyName) {
+            const key = `${practice}|${fips}`;
+            const qaArray = aiInsightsData[key]; // Get the array of Q&A objects
+
+            // Case 1: No data found (or empty array) for this combination
+            if (!qaArray || qaArray.length === 0) {
+                return `<p class="text-gray-500">AI insights for ${practice} in ${countyName} (${fips}) are being generated and will be available soon.</p>`;
+            }
+
+            // Case 2: Data is found, build the HTML
+            let html = `<div class="space-y-4">`;
+            
+            // Add Q&A section
+            html += `
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-800 mb-2">Insights & Common Questions</h3>
+                    <div class="space-y-3">
+            `;
+            
+            qaArray.forEach(item => {
+                html += `
+                    <div>
+                        <p class="font-medium text-gray-700">${item.q}</p>
+                        <p>${item.a}</p>
+                    </div>
+                `;
+            });
+
+            html += `</div></div>`;
+
+            html += `</div>`;
+            return html;
+        }
+    </script>
+</body>
+</html>
+
